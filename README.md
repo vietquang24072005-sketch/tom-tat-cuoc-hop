@@ -23,9 +23,18 @@ npm start
    (Chỉ dùng model `ag/gemini-…`; model Claude/GPT không nghe được âm thanh.
    Có thể chuyển sang *Google Gemini API* nếu có key `AIza…` từ aistudio.google.com.)
 4. Vào cuộc họp/cuộc gọi như bình thường, rồi bấm **● Bắt đầu ghi**.
-   - App thu **âm thanh phát ra từ máy** (tiếng mọi người trong cuộc họp) và **micro của bạn**.
-   - Cứ mỗi 30 giây, lời nói được chép lên khung *Transcript*.
-5. Họp xong bấm **■ Dừng & tóm tắt** → biên bản hiện ra gồm: tổng quan, người tham gia, điểm chính, quyết định, việc cần làm (ai làm, hạn), vấn đề còn mở.
+   - App thu **âm thanh phát ra từ máy** (tiếng mọi người) và **micro của bạn** thành 2 luồng riêng:
+     lời từ micro ghi là **Tôi**, lời từ loa ghi là **Người khác**. Nếu micro thu lại tiếng loa (không đeo tai nghe), câu trùng tự bị lọc bỏ.
+   - Họp trực tiếp / lớp học: chỉ bật micro, bỏ "âm thanh máy".
+   - **Chép lời**: *Tức thì* (mặc định) — lời nói hiện ngay trong lúc họp, chạy offline, miễn phí;
+     *AI* — gửi Gemini mỗi 20–60 giây, chính xác hơn nhưng chậm và tốn lượt gọi.
+5. Chọn **loại buổi** ở khung Tóm tắt, mỗi loại có bộ mục riêng:
+   - 📋 Họp chung: người tham gia, điểm chính, quyết định, vấn đề còn mở, việc cần làm
+   - 🚀 Họp dự án: tiến độ, vướng mắc & rủi ro, quyết định, kế hoạch tiếp theo
+   - 🎓 Buổi học / bài giảng: ý chính, khái niệm & định nghĩa, ví dụ, chỗ dễ nhầm, câu hỏi ôn tập kèm đáp án, bài tập
+   - 🤝 Phỏng vấn: thông tin ứng viên, kỹ năng, điểm mạnh, điểm cần lưu ý, đánh giá
+   - 💼 Gặp khách hàng: nhu cầu, phản hồi, con số quan trọng, đã thống nhất, việc tiếp theo
+6. Bấm **■ Dừng & tóm tắt** → bản tóm tắt hiện ra. Đổi loại buổi rồi bấm **Tóm tắt** để tóm tắt lại theo mẫu khác.
 
 Biên bản được lưu dạng `.md` trong `Documents\Bien ban hop` (bấm **📁 Biên bản đã lưu** để mở).
 

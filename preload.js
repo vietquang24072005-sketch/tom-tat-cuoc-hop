@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
-const LISTEN = ["dictation:toggle", "dictation:cancel", "dictation:done", "meeting:state", "bubble:collapse", "caption"];
+const LISTEN = ["dictation:toggle", "dictation:cancel", "dictation:done", "meeting:state", "bubble:collapse", "caption", "meet:asr"];
 
 contextBridge.exposeInMainWorld("api", {
   // cấu hình + AI
@@ -9,6 +9,9 @@ contextBridge.exposeInMainWorld("api", {
   transcribe: (payload) => ipcRenderer.invoke("ai:transcribe", payload),
   summarize: (payload) => ipcRenderer.invoke("ai:summarize", payload),
   dictate: (payload) => ipcRenderer.invoke("ai:dictate", payload),
+  meetAsrStart: (sources) => ipcRenderer.invoke("meet:asr-start", sources),
+  meetAudio: (src, samples) => ipcRenderer.send("meet:audio", src, samples),
+  meetAsrStop: (sources) => ipcRenderer.send("meet:asr-stop", sources),
   dictStart: () => ipcRenderer.invoke("dict:start"),
   dictAudio: (samples) => ipcRenderer.send("dict:audio", samples),
   dictStop: (opts) => ipcRenderer.send("dict:stop", opts),

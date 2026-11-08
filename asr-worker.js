@@ -1,18 +1,21 @@
 // Tiến trình riêng: nhận giọng nói tiếng Việt offline (sherpa-onnx), không làm đứng giao diện.
-// Nhận: {type:"start"} | {type:"audio", samples: Float32Array 16 kHz} | {type:"stop"}
-// Gửi:  {type:"ready"} | {type:"partial", text} | {type:"final", text} | {type:"done"} | {type:"error", message}
+// Chạy được nhiều luồng cùng lúc, mỗi luồng có id riêng (vd "dict", "meet-mic", "meet-sys").
+// Nhận: {type:"start", id} | {type:"audio", id, samples: Float32Array 16 kHz} | {type:"stop", id}
+// Gửi:  {type:"ready"} | {type:"partial", id, text} | {type:"final", id, text, t} | {type:"done", id} | {type:"error", message}
+//       (t = thời điểm bắt đầu câu, tính bằng giây từ lúc start)
 const path = require("path");
 const sherpa = require("sherpa-onnx-node");
 
 const RATE = 16000;
-const FRAME = 480;              // 30 ms
-const PREROLL = RATE * 0.3;     // giữ 300 ms trước khi bắt đầu nói để không mất âm đầu
-const END_SILENCE_MS = 550;     // im lặng bao lâu thì chốt câu
+const FRAME = 480;                 // 30 ms
+const PREROLL = RATE * 0.3;        // giữ 300 ms trước khi bắt đầu nói để không mất âm đầu
+const END_SILENCE_MS = 550;        // im lặng bao lâu thì chốt câu
 const PARTIAL_EVERY = RATE * 0.25; // cập nhật chữ tạm mỗi 250 ms âm thanh
 const MAX_SEGMENT = RATE * 20;
 
 const MODEL_DIR = path.join(process.env.ASR_MODEL_DIR || path.join(__dirname, "models"), "sherpa-onnx-zipformer-vi-30M-int8-2026-02-09");
 let recognizer = null;
+const post = (m) => process.parentPort.postMessage(m);
 
 function load() {
   recognizer = new sherpa.OfflineRecognizer({
@@ -41,77 +44,91 @@ function decode(samples) {
   return recognizer.getResult(s).text.trim();
 }
 
-// ---------- trạng thái 1 phiên đọc ----------
-let st = null;
-function reset() {
-  st = {
-    pending: new Float32Array(0), // mẫu chưa đủ 1 frame
-    pre: [], preLen: 0,           // đệm trước khi nói
-    seg: [], segLen: 0,           // câu đang nói
-    speaking: false, silenceMs: 0, sinceDecode: 0,
-    noise: 0.004, lastPartial: "",
-  };
-}
 const concat = (arr, len) => { const o = new Float32Array(len); let p = 0; for (const a of arr) { o.set(a, p); p += a.length; } return o; };
 
-function finalize() {
-  if (!st.segLen) return;
-  const text = decode(concat(st.seg, st.segLen));
-  st.seg = []; st.segLen = 0; st.speaking = false; st.silenceMs = 0; st.sinceDecode = 0; st.lastPartial = "";
-  if (text) process.parentPort.postMessage({ type: "final", text });
-  else process.parentPort.postMessage({ type: "partial", text: "" });
-}
+class Session {
+  constructor(id) {
+    this.id = id;
+    this.pending = new Float32Array(0); // mẫu chưa đủ 1 frame
+    this.pre = []; this.preLen = 0;     // đệm trước khi nói
+    this.seg = []; this.segLen = 0;     // câu đang nói
+    this.speaking = false; this.silenceMs = 0; this.sinceDecode = 0;
+    this.noise = 0.004; this.lastPartial = "";
+    this.total = 0; this.segStart = 0;  // đếm mẫu để tính thời điểm câu
+  }
 
-function onFrame(f) {
-  let sq = 0; for (let i = 0; i < f.length; i++) sq += f[i] * f[i];
-  const rms = Math.sqrt(sq / f.length);
-  const thr = Math.max(0.01, st.noise * 3);
-  const voiced = rms > thr;
+  finalize() {
+    if (!this.segLen) return;
+    const text = decode(concat(this.seg, this.segLen));
+    const t = this.segStart / RATE;
+    this.seg = []; this.segLen = 0; this.speaking = false; this.silenceMs = 0; this.sinceDecode = 0; this.lastPartial = "";
+    if (text) post({ type: "final", id: this.id, text, t });
+    else post({ type: "partial", id: this.id, text: "" });
+  }
 
-  if (!st.speaking) {
-    st.noise = st.noise * 0.97 + Math.min(rms, 0.05) * 0.03; // ước lượng tiếng ồn nền
-    st.pre.push(f); st.preLen += f.length;
-    while (st.preLen - st.pre[0].length >= PREROLL) st.preLen -= st.pre.shift().length;
-    if (voiced) {
-      st.speaking = true;
-      st.seg = st.pre; st.segLen = st.preLen; st.pre = []; st.preLen = 0; st.silenceMs = 0; st.sinceDecode = 0;
+  frame(f) {
+    this.total += f.length;
+    let sq = 0; for (let i = 0; i < f.length; i++) sq += f[i] * f[i];
+    const rms = Math.sqrt(sq / f.length);
+    const voiced = rms > Math.max(0.01, this.noise * 3);
+
+    if (!this.speaking) {
+      this.noise = this.noise * 0.97 + Math.min(rms, 0.05) * 0.03; // ước lượng tiếng ồn nền
+      this.pre.push(f); this.preLen += f.length;
+      while (this.preLen - this.pre[0].length >= PREROLL) this.preLen -= this.pre.shift().length;
+      if (voiced) {
+        this.speaking = true;
+        this.segStart = this.total - this.preLen;
+        this.seg = this.pre; this.segLen = this.preLen; this.pre = []; this.preLen = 0;
+        this.silenceMs = 0; this.sinceDecode = 0;
+      }
+      return;
     }
-    return;
+
+    this.seg.push(f); this.segLen += f.length; this.sinceDecode += f.length;
+    this.silenceMs = voiced ? 0 : this.silenceMs + (f.length / RATE) * 1000;
+
+    if (this.silenceMs >= END_SILENCE_MS || this.segLen >= MAX_SEGMENT) return this.finalize();
+    if (this.sinceDecode >= PARTIAL_EVERY) {
+      this.sinceDecode = 0;
+      const text = decode(concat(this.seg, this.segLen));
+      if (text !== this.lastPartial) { this.lastPartial = text; post({ type: "partial", id: this.id, text }); }
+    }
   }
 
-  st.seg.push(f); st.segLen += f.length; st.sinceDecode += f.length;
-  st.silenceMs = voiced ? 0 : st.silenceMs + (f.length / RATE) * 1000;
+  audio(samples) {
+    const all = new Float32Array(this.pending.length + samples.length);
+    all.set(this.pending); all.set(samples, this.pending.length);
+    let i = 0;
+    for (; i + FRAME <= all.length; i += FRAME) this.frame(all.subarray(i, i + FRAME).slice());
+    this.pending = all.slice(i);
+  }
 
-  if (st.silenceMs >= END_SILENCE_MS || st.segLen >= MAX_SEGMENT) return finalize();
-  if (st.sinceDecode >= PARTIAL_EVERY) {
-    st.sinceDecode = 0;
-    const text = decode(concat(st.seg, st.segLen));
-    if (text !== st.lastPartial) { st.lastPartial = text; process.parentPort.postMessage({ type: "partial", text }); }
+  stop() {
+    if (this.speaking) {
+      if (this.pending.length) { this.seg.push(this.pending); this.segLen += this.pending.length; }
+      this.finalize();
+    }
   }
 }
 
-function onAudio(samples) {
-  const all = new Float32Array(st.pending.length + samples.length);
-  all.set(st.pending); all.set(samples, st.pending.length);
-  let i = 0;
-  for (; i + FRAME <= all.length; i += FRAME) onFrame(all.subarray(i, i + FRAME).slice());
-  st.pending = all.slice(i);
-}
+const sessions = new Map();
 
 process.parentPort.on("message", (e) => {
   const msg = e.data;
+  const id = msg.id || "dict";
   try {
-    if (msg.type === "start") reset();
-    else if (msg.type === "audio" && st) onAudio(msg.samples);
-    else if (msg.type === "stop" && st) {
-      if (st.speaking) { if (st.pending.length) { st.seg.push(st.pending); st.segLen += st.pending.length; } finalize(); }
-      st = null;
-      process.parentPort.postMessage({ type: "done" });
+    if (msg.type === "start") sessions.set(id, new Session(id));
+    else if (msg.type === "audio") sessions.get(id)?.audio(msg.samples);
+    else if (msg.type === "stop") {
+      sessions.get(id)?.stop();
+      sessions.delete(id);
+      post({ type: "done", id });
     }
   } catch (err) {
-    process.parentPort.postMessage({ type: "error", message: err.message });
+    post({ type: "error", message: err.message });
   }
 });
 
-try { load(); process.parentPort.postMessage({ type: "ready" }); }
-catch (err) { process.parentPort.postMessage({ type: "error", message: "Không tải được model giọng nói: " + err.message }); }
+try { load(); post({ type: "ready" }); }
+catch (err) { post({ type: "error", message: "Không tải được model giọng nói: " + err.message }); }

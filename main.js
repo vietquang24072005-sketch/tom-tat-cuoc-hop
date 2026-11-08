@@ -80,6 +80,8 @@ function formatPhrase(raw, sess) {
 function onAsrMessage(m) {
   if (m.type === "ready") { asrError = ""; return; }
   if (m.type === "error") { asrError = m.message; notify(m.message); return; }
+  // luồng của cuộc họp → chuyển cho cửa sổ chính
+  if (m.id?.startsWith("meet-")) { mainWin?.webContents.send("meet:asr", { ...m, src: m.id.slice(5) }); return; }
   if (!dictSess) return;
   if (m.type === "partial") sendCaption({ partial: m.text.toLocaleLowerCase("vi") });
   else if (m.type === "final") {
@@ -201,7 +203,6 @@ function refreshTray() {
 
 // ---------- cuộc họp (chạy trong cửa sổ chính, kể cả khi đang ẩn) ----------
 function toggleMeeting() {
-  if (!loadConfig().apiKey) return showMain();
   mainWin.webContents.executeJavaScript("window.__toggleMeeting && window.__toggleMeeting()", true);
 }
 
@@ -233,8 +234,8 @@ if (!app.requestSingleInstanceLock()) {
       return publicCfg(c);
     });
     ipcMain.handle("ai:transcribe", (_e, payload) => gemini.transcribe(loadConfig(), payload));
-    ipcMain.handle("ai:summarize", async (_e, { title, transcript }) => {
-      const summary = await gemini.summarize(loadConfig(), { title, transcript });
+    ipcMain.handle("ai:summarize", async (_e, { title, transcript, template }) => {
+      const summary = await gemini.summarize(loadConfig(), { title, transcript, template });
       return { summary, ...saveMeeting(summary, transcript) };
     });
     ipcMain.handle("ai:dictate", async (_e, { audio }) => {
@@ -276,6 +277,15 @@ if (!app.requestSingleInstanceLock()) {
       patchConfig({ bubble: orbPos });
     });
     ipcMain.on("bubble:menu", () => buildMenu().popup());
+
+    // chép lời cuộc họp tức thì (offline): mỗi nguồn (mic / sys) là 1 luồng riêng
+    ipcMain.handle("meet:asr-start", (_e, sources) => {
+      if (!asr || asrError) return { ok: false, error: asrError || "Bộ nhận giọng nói đang khởi động, thử lại sau vài giây" };
+      for (const src of sources) asr.postMessage({ type: "start", id: "meet-" + src });
+      return { ok: true };
+    });
+    ipcMain.on("meet:audio", (_e, src, samples) => asr?.postMessage({ type: "audio", id: "meet-" + src, samples }));
+    ipcMain.on("meet:asr-stop", (_e, sources) => { for (const src of sources) asr?.postMessage({ type: "stop", id: "meet-" + src }); });
 
     // gõ bằng giọng nói
     ipcMain.handle("dict:start", () => {

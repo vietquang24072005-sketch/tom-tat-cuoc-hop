@@ -70,6 +70,8 @@ textarea { flex: 1; min-height: 160px; resize: none; font-size: 13.5px; }
 .summary th, .summary td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
 .summary th { color: var(--muted); font-weight: 600; }
 .none { color: var(--muted); font-style: italic; }
+.summary .tag { display: inline-block; font-size: 11px; color: var(--accent); background: var(--soft); border-radius: 99px; padding: 1px 9px; margin-bottom: 6px; }
+.live { min-height: 20px; font-size: 13px; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: -4px; }
 
 dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--text); padding: 0; width: min(460px, 92vw); }
 dialog::backdrop { background: rgba(0,0,0,.35); }

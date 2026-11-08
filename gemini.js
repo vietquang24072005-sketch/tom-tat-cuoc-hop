@@ -79,28 +79,51 @@ Quy tắc:
 - Nếu không có lời nói rõ ràng, trả về chính xác: [im lặng]
 ${prev ? `\nĐoạn transcript ngay trước đó (chỉ để giữ nhất quán tên người nói, KHÔNG chép lại):\n"""${prev}"""` : ""}`;
 
-const SUMMARY_PROMPT = (title, transcript) => `Bạn là thư ký cuộc họp chuyên nghiệp. Dựa trên transcript dưới đây, hãy viết biên bản tóm tắt bằng tiếng Việt.
-Tên cuộc họp (nếu có): ${title || "(không có)"}
+// Mẫu tóm tắt theo loại buổi: mỗi mẫu có vai trò AI, các mục cần viết và tên phần việc cần làm
+const TEMPLATES = {
+  hop: { name: "Họp chung", role: "thư ký cuộc họp chuyên nghiệp",
+    muc: ["Người tham gia", "Điểm chính đã thảo luận", "Quyết định đã chốt", "Vấn đề còn mở"], tasks: "Việc cần làm" },
+  du_an: { name: "Họp dự án", role: "quản lý dự án giàu kinh nghiệm",
+    muc: ["Tiến độ / việc đã xong", "Vướng mắc & rủi ro", "Quyết định đã chốt", "Kế hoạch tiếp theo"], tasks: "Việc cần làm" },
+  hoc: { name: "Buổi học / bài giảng", role: "trợ giảng ghi chép bài học giúp sinh viên ôn tập",
+    muc: ["Ý chính của bài", "Khái niệm & định nghĩa", "Ví dụ minh hoạ", "Lưu ý / chỗ dễ nhầm", "Câu hỏi ôn tập (kèm đáp án ngắn)"],
+    tasks: "Bài tập / việc cần làm",
+    extra: "Viết như vở ghi chép: rõ ràng, dễ ôn. Khái niệm ghi dạng \"Thuật ngữ: giải thích\". Câu hỏi ôn tập ghi dạng \"Hỏi: … — Đáp: …\"." },
+  phong_van: { name: "Phỏng vấn", role: "chuyên viên tuyển dụng",
+    muc: ["Thông tin ứng viên", "Kinh nghiệm & kỹ năng nổi bật", "Điểm mạnh", "Điểm cần lưu ý", "Câu trả lời đáng chú ý", "Đánh giá & đề xuất"],
+    tasks: "Bước tiếp theo" },
+  khach_hang: { name: "Gặp khách hàng", role: "nhân viên kinh doanh chuyên nghiệp",
+    muc: ["Thông tin khách hàng", "Nhu cầu & mong muốn", "Phản hồi / vấn đề khách nêu", "Con số quan trọng (giá, số lượng, thời hạn)", "Đã thống nhất"],
+    tasks: "Việc cần làm tiếp theo" },
+};
+
+const SUMMARY_PROMPT = (title, transcript, tpl) => `Bạn là ${tpl.role}. Dựa trên transcript dưới đây (loại buổi: ${tpl.name}), hãy viết bản tóm tắt bằng tiếng Việt.
+Tên buổi (nếu có): ${title || "(không có)"}
+
+Về người nói trong transcript: "Tôi" là người dùng ứng dụng (người đang ghi âm); "Người khác" là những người còn lại (có thể nhiều người).
+Nếu nghe được tên thật thì dùng tên thật. Việc giao cho "Tôi" thì ghi người phụ trách là "Tôi".
+Transcript có thể do máy chép nên có vài chỗ sai chính tả/nghe nhầm — hãy hiểu theo ngữ cảnh, viết lại cho đúng.
+${tpl.extra || ""}
 
 Trả về JSON đúng cấu trúc:
 {
-  "tieu_de": "tiêu đề ngắn gọn cho cuộc họp",
+  "tieu_de": "tiêu đề ngắn gọn",
   "tong_quan": "2-4 câu tóm tắt mục đích và kết quả chính",
-  "nguoi_tham_gia": ["tên hoặc nhãn người nói"],
-  "diem_chinh": ["các ý/chủ đề chính đã thảo luận, mỗi ý 1 câu đầy đủ"],
-  "quyet_dinh": ["các quyết định đã chốt"],
-  "viec_can_lam": [{"viec": "mô tả công việc", "nguoi_phu_trach": "tên hoặc 'Chưa rõ'", "han": "thời hạn hoặc 'Chưa rõ'"}],
-  "van_de_mo": ["câu hỏi/vấn đề còn bỏ ngỏ, cần theo dõi"]
+  "muc": [
+${tpl.muc.map((m) => `    {"tieu_de": "${m}", "y": ["mỗi ý 1 câu đầy đủ"]}`).join(",\n")}
+  ],
+  "viec_can_lam": [{"viec": "mô tả", "nguoi_phu_trach": "tên hoặc 'Chưa rõ'", "han": "thời hạn hoặc 'Chưa rõ'"}]
 }
-Chỉ dùng thông tin có trong transcript; mảng nào không có thì để []. Không bịa thêm.
+Giữ đúng ${tpl.muc.length} mục theo thứ tự trên. Chỉ dùng thông tin có trong transcript; mục nào không có thì "y": []. Không bịa thêm.
 
 TRANSCRIPT:
 """
 ${transcript}
 """`;
 
-async function transcribe(cfg, { audio, previous = "" }) {
-  const text = await callAI(cfg, { text: TRANSCRIBE_PROMPT(previous.slice(-600)), audio }, { temperature: 0 });
+async function transcribe(cfg, { audio, previous = "", single = false }) {
+  const prompt = TRANSCRIBE_PROMPT(previous.slice(-600)) + (single ? "\n- Đoạn này chỉ từ một nguồn: KHÔNG ghi nhãn người nói, chỉ chép lời." : "");
+  const text = await callAI(cfg, { text: prompt, audio }, { temperature: 0 });
   return /^\[?im lặng\]?\.?$/i.test(text) ? "" : text;
 }
 
@@ -116,39 +139,37 @@ async function dictate(cfg, { audio }) {
   return /^\[?im lặng\]?\.?$/i.test(text) ? "" : text.replace(/^["“]|["”]$/g, "").trim();
 }
 
-async function summarize(cfg, { title, transcript }) {
-  const raw = await callAI(cfg, { text: SUMMARY_PROMPT(title, transcript) + "\n\nChỉ trả về JSON, không kèm giải thích." }, { json: true, temperature: 0.3 });
+async function summarize(cfg, { title, transcript, template = "hop" }) {
+  const key = TEMPLATES[template] ? template : "hop", tpl = TEMPLATES[key];
+  const raw = await callAI(cfg, { text: SUMMARY_PROMPT(title, transcript, tpl) + "\n\nChỉ trả về JSON, không kèm giải thích." }, { json: true, temperature: 0.3 });
   const start = raw.indexOf("{"), end = raw.lastIndexOf("}");
-  try { return JSON.parse(raw.slice(start, end + 1)); }
+  let s;
+  try { s = JSON.parse(raw.slice(start, end + 1)); }
   catch { throw new Error("AI trả về định dạng không hợp lệ, hãy bấm Tóm tắt lại"); }
+  s.muc = Array.isArray(s.muc) ? s.muc : [];
+  s.viec_can_lam = Array.isArray(s.viec_can_lam) ? s.viec_can_lam : [];
+  s.loai = key; s.loai_ten = tpl.name; s.ten_viec = tpl.tasks;
+  return s;
 }
 
 function toMarkdown(s, transcript) {
   const list = (arr) => (arr?.length ? arr.map((x) => `- ${x}`).join("\n") : "_Không có_");
+  const cell = (x) => String(x ?? "").replace(/\|/g, "/");
   const tasks = s.viec_can_lam?.length
-    ? "| Việc cần làm | Phụ trách | Hạn |\n|---|---|---|\n" + s.viec_can_lam.map((t) => `| ${t.viec} | ${t.nguoi_phu_trach} | ${t.han} |`).join("\n")
+    ? `| ${s.ten_viec || "Việc cần làm"} | Phụ trách | Hạn |\n|---|---|---|\n` + s.viec_can_lam.map((t) => `| ${cell(t.viec)} | ${cell(t.nguoi_phu_trach)} | ${cell(t.han)} |`).join("\n")
     : "_Không có_";
-  return `# ${s.tieu_de || "Biên bản cuộc họp"}
+  const sections = (s.muc || []).map((m) => `## ${m.tieu_de}\n${list(m.y)}`).join("\n\n");
+  return `# ${s.tieu_de || "Biên bản"}
 
-_Ngày: ${new Date().toLocaleString("vi-VN")}_
+_${s.loai_ten || "Họp chung"} · ${new Date().toLocaleString("vi-VN")}_
 
 ## Tổng quan
 ${s.tong_quan || ""}
 
-## Người tham gia
-${list(s.nguoi_tham_gia)}
+${sections}
 
-## Điểm chính
-${list(s.diem_chinh)}
-
-## Quyết định
-${list(s.quyet_dinh)}
-
-## Việc cần làm
+## ${s.ten_viec || "Việc cần làm"}
 ${tasks}
-
-## Vấn đề còn mở
-${list(s.van_de_mo)}
 
 ---
 
@@ -157,4 +178,4 @@ ${transcript}
 `;
 }
 
-module.exports = { transcribe, summarize, dictate, toMarkdown };
+module.exports = { transcribe, summarize, dictate, toMarkdown, TEMPLATES };

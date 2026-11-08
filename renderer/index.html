@@ -23,14 +23,22 @@
     <section class="card">
       <h2>Ghi âm cuộc họp</h2>
       <label class="field">
-        <span>Tên cuộc họp (không bắt buộc)</span>
-        <input id="title" type="text" placeholder="VD: Họp tiến độ dự án tuần 45" />
+        <span>Tên buổi (không bắt buộc)</span>
+        <input id="title" type="text" placeholder="VD: Họp tiến độ dự án tuần 45 · Bài 3 Kinh tế vi mô" />
       </label>
 
       <div class="options">
-        <label class="check"><input id="useMic" type="checkbox" checked /> Thu cả micro của tôi</label>
-        <label class="check"><input id="useSystem" type="checkbox" checked /> Thu âm thanh máy (Meet, Zalo, Teams…)</label>
-        <label class="inline">Chép mỗi
+        <label class="check" title="Lời của bạn được ghi là “Tôi”"><input id="useMic" type="checkbox" checked /> Thu micro của tôi</label>
+        <label class="check" title="Tiếng phát ra loa được ghi là “Người khác”"><input id="useSystem" type="checkbox" checked /> Thu âm thanh máy (Meet, Zalo, Teams…)</label>
+      </div>
+      <div class="options">
+        <label class="inline">Chép lời
+          <select id="transMode">
+            <option value="instant">Tức thì — offline, miễn phí</option>
+            <option value="ai">AI — chính xác hơn, chậm</option>
+          </select>
+        </label>
+        <label class="inline" id="chunkWrap">mỗi
           <select id="chunkSec">
             <option value="20">20 giây</option>
             <option value="30" selected>30 giây</option>
@@ -44,8 +52,8 @@
         <div class="meter-wrap" title="Mức âm thanh"><div id="meter" class="meter"></div></div>
         <span id="timer" class="timer">00:00</span>
       </div>
-      <p class="hint">Mở cuộc họp Google Meet hoặc cuộc gọi trên máy như bình thường, rồi bấm <b>Bắt đầu ghi</b>.
-        App thu tiếng của mọi người qua loa máy tính và giọng bạn qua micro.</p>
+      <p class="hint">Họp online / cuộc gọi: để cả 2 nguồn → lời bạn ghi là <b>Tôi</b>, lời người khác ghi là <b>Người khác</b>.
+        Họp trực tiếp / lớp học: chỉ bật <b>micro</b> (bỏ “âm thanh máy”).</p>
       <p class="hint">💡 Nút tròn nổi trên màn hình: bấm để <b>ghi cuộc họp</b> hoặc <b>gõ bằng giọng nói</b> vào bất kỳ ô nhập chữ nào. Phím tắt gõ bằng giọng nói: <b>Ctrl+Shift+Space</b> (bấm lần nữa để dừng, Esc để huỷ). Đóng cửa sổ này app vẫn chạy ở khay hệ thống.</p>
 
       <div class="section-head">
@@ -53,7 +61,8 @@
         <span id="pending" class="pending"></span>
       </div>
       <textarea id="transcript" spellcheck="false"
-        placeholder="Lời nói sẽ hiện dần ở đây trong lúc họp. Bạn cũng có thể dán transcript có sẵn rồi bấm Tóm tắt."></textarea>
+        placeholder="Lời nói sẽ hiện ở đây trong lúc họp. Bạn cũng có thể dán transcript có sẵn rồi bấm Tóm tắt."></textarea>
+      <div id="live" class="live"></div>
       <div class="row end">
         <button id="btnClear" class="btn ghost small">Xoá transcript</button>
       </div>
@@ -61,15 +70,22 @@
 
     <section class="card">
       <div class="section-head">
-        <h2>Biên bản tóm tắt</h2>
+        <h2>Tóm tắt</h2>
         <div class="row">
+          <select id="template" title="Loại buổi — quyết định bản tóm tắt gồm những mục nào">
+            <option value="hop">📋 Họp chung</option>
+            <option value="du_an">🚀 Họp dự án</option>
+            <option value="hoc">🎓 Buổi học / bài giảng</option>
+            <option value="phong_van">🤝 Phỏng vấn</option>
+            <option value="khach_hang">💼 Gặp khách hàng</option>
+          </select>
           <button id="btnSummarize" class="btn primary small">Tóm tắt</button>
           <button id="btnCopy" class="btn ghost small" disabled>Sao chép</button>
           <button id="btnShow" class="btn ghost small" disabled>Mở file</button>
         </div>
       </div>
       <div id="summary" class="summary empty">
-        Khi bấm <b>Dừng</b>, app sẽ tự tóm tắt và lưu biên bản (.md) vào thư mục <b>Documents\Bien ban hop</b>.
+        <div>Chọn loại buổi ở trên (họp, dự án, buổi học…). Khi bấm <b>Dừng</b>, app tự tóm tắt và lưu (.md) vào <b>Documents\Bien ban hop</b>.<br />Đổi loại buổi rồi bấm <b>Tóm tắt</b> để tóm tắt lại theo mẫu khác.</div>
       </div>
     </section>
   </main>

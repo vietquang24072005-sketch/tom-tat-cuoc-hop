@@ -5,7 +5,7 @@ const els = {
   transcript: $("transcript"), pending: $("pending"), btnClear: $("btnClear"),
   btnSummarize: $("btnSummarize"), btnCopy: $("btnCopy"), btnShow: $("btnShow"), summary: $("summary"),
   btnSettings: $("btnSettings"), btnFolder: $("btnFolder"), settings: $("settings"), apiKey: $("apiKey"), model: $("model"),
-  toast: $("toast"),
+  toast: $("toast"), transMode: $("transMode"), chunkWrap: $("chunkWrap"), live: $("live"), template: $("template"),
 };
 
 const TARGET_RATE = 16000;
@@ -37,6 +37,14 @@ function setPending(delta) {
 }
 function saveDraft() { try { localStorage.setItem("draft", els.transcript.value); localStorage.setItem("title", els.title.value); } catch {} }
 function loadDraft() { try { els.transcript.value = localStorage.getItem("draft") || ""; els.title.value = localStorage.getItem("title") || ""; } catch {} }
+function savePrefs() { try { localStorage.setItem("transMode", els.transMode.value); localStorage.setItem("template", els.template.value); } catch {} }
+function loadPrefs() {
+  try {
+    const m = localStorage.getItem("transMode"), t = localStorage.getItem("template");
+    if (m) els.transMode.value = m;
+    if (t && [...els.template.options].some((o) => o.value === t)) els.template.value = t;
+  } catch {}
+}
 
 function updateStatus() {
   const via = config.provider === "gemini" ? "Gemini API" : "9router";
@@ -46,40 +54,121 @@ function updateStatus() {
 
 // ---------- âm thanh ----------
 const { downsample, encodeWav, blobToBase64 } = window.AudioUtils;
+const LABEL = { mic: "Tôi", sys: "Người khác" };
+
+// Viết hoa chữ đầu, bỏ khoảng trắng thừa (model offline trả về chữ hoa toàn bộ)
+function tidy(text) {
+  const t = text.toLocaleLowerCase("vi").replace(/\s+/g, " ").trim();
+  return t ? t[0].toLocaleUpperCase("vi") + t.slice(1) : "";
+}
+
+// Thêm 1 dòng vào transcript (giữ vị trí cuộn nếu người dùng đang đọc phía trên)
+function addLine(t, src, text) {
+  const ta = els.transcript, atBottom = ta.scrollTop + ta.clientHeight >= ta.scrollHeight - 30;
+  const who = rec?.labeled && src ? `${LABEL[src]}: ` : "";
+  ta.value += `[${fmt(t)}] ${who}${text}\n`;
+  if (atBottom) ta.scrollTop = ta.scrollHeight;
+  saveDraft();
+}
+
+// ----- lọc trùng: không đeo tai nghe thì micro thu lại tiếng loa → câu của "Người khác" bị chép 2 lần -----
+const words = (t) => t.toLocaleLowerCase("vi").split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+function overlap(a, b) {
+  const wa = words(a), bag = new Map();
+  if (wa.length < 2) return 0;
+  for (const w of words(b)) bag.set(w, (bag.get(w) || 0) + 1);
+  let hit = 0;
+  for (const w of wa) { const n = bag.get(w); if (n) { hit++; bag.set(w, n - 1); } }
+  return hit / wa.length;
+}
+const isEcho = (micText, micT) => rec.recentSys.some((x) => Math.abs(x.t - micT) < 6 && overlap(micText, x.text) >= 0.6);
+
+function onMeetAsr(m) {
+  if (!rec || rec.mode !== "instant") return;
+  if (m.type === "partial") { rec.partial[m.src] = m.text; renderLive(); return; }
+  if (m.type === "done") { rec.doneWait.delete(m.src); if (!rec.doneWait.size) rec.onAllDone?.(); return; }
+  if (m.type !== "final") return;
+  rec.partial[m.src] = ""; renderLive();
+  const text = tidy(m.text);
+  if (!text) return;
+  if (m.src === "sys" && rec.labeled) {
+    rec.recentSys.push({ t: m.t, text });
+    if (rec.recentSys.length > 30) rec.recentSys.shift();
+    // câu micro đang chờ mà trùng với câu loa vừa đến → bỏ
+    rec.heldMic = rec.heldMic.filter((h) => { if (Math.abs(h.t - m.t) < 6 && overlap(h.text, text) >= 0.6) { clearTimeout(h.timer); return false; } return true; });
+    addLine(m.t, "sys", text);
+  } else if (m.src === "mic" && rec.labeled) {
+    // giữ câu micro 1,5 giây để chờ câu loa tương ứng (nếu là tiếng vọng)
+    const h = { t: m.t, text };
+    h.timer = setTimeout(() => releaseMic(h), 1500);
+    rec.heldMic.push(h);
+  } else addLine(m.t, null, text);
+}
+function releaseMic(h) {
+  if (!rec) return;
+  rec.heldMic = rec.heldMic.filter((x) => x !== h);
+  if (!isEcho(h.text, h.t)) addLine(h.t, "mic", h.text);
+}
+function renderLive() {
+  if (!rec) { els.live.textContent = ""; return; }
+  const parts = Object.entries(rec.partial).filter(([, t]) => t).map(([src, t]) => (rec.labeled ? `${LABEL[src]}: ` : "") + tidy(t));
+  els.live.textContent = parts.length ? "🎙 " + parts.join("   ·   ") : "";
+}
+window.api.on("meet:asr", onMeetAsr);
+
+function syncModeUI() { els.chunkWrap.style.display = els.transMode.value === "ai" ? "" : "none"; }
 
 async function startRecording() {
-  if (!config.hasKey) { openSettings(); return toast("Hãy nhập API key trước"); }
+  const mode = els.transMode.value === "ai" ? "ai" : "instant";
+  if (mode === "ai" && !config.hasKey) { openSettings(); return toast("Chế độ AI cần API key"); }
   if (!els.useMic.checked && !els.useSystem.checked) return toast("Hãy chọn ít nhất một nguồn âm thanh");
 
-  const streams = [];
+  const sources = [];
   try {
     if (els.useSystem.checked) {
       const display = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
       display.getVideoTracks().forEach((t) => t.stop());
       if (!display.getAudioTracks().length) throw new Error("Không thu được âm thanh hệ thống");
-      streams.push(display);
+      sources.push({ src: "sys", stream: display });
     }
     if (els.useMic.checked) {
-      streams.push(await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }));
+      sources.push({ src: "mic", stream: await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }) });
     }
   } catch (e) {
-    streams.forEach((s) => s.getTracks().forEach((t) => t.stop()));
+    sources.forEach((s) => s.stream.getTracks().forEach((t) => t.stop()));
     return toast("Không mở được nguồn âm thanh: " + cleanErr(e), 6000);
+  }
+
+  const names = sources.map((s) => s.src);
+  if (mode === "instant") {
+    const r = await window.api.meetAsrStart(names);
+    if (!r.ok) { sources.forEach((s) => s.stream.getTracks().forEach((t) => t.stop())); return toast(r.error, 6000); }
   }
 
   const ctx = new AudioContext();
   await ctx.audioWorklet.addModule("recorder-worklet.js");
-  const node = new AudioWorkletNode(ctx, "collector", { numberOfInputs: 1, numberOfOutputs: 1, channelCount: 2, channelCountMode: "explicit" });
   const analyser = ctx.createAnalyser(); analyser.fftSize = 1024;
-  const mute = ctx.createGain(); mute.gain.value = 0;
-  for (const s of streams) { const src = ctx.createMediaStreamSource(s); src.connect(node); src.connect(analyser); }
-  node.connect(mute).connect(ctx.destination);
+  const mute = ctx.createGain(); mute.gain.value = 0; mute.connect(ctx.destination);
 
-  rec = { ctx, node, analyser, streams, parts: [], startedAt: Date.now(), chunkStart: 0 };
-  node.port.onmessage = (e) => rec && rec.parts.push(e.data);
+  rec = {
+    mode, ctx, analyser, sources, names, startedAt: Date.now(),
+    labeled: names.length === 2,      // chỉ khi có cả micro lẫn loa mới biết chắc ai nói
+    parts: {}, chunkStart: 0,          // chế độ AI
+    partial: {}, recentSys: [], heldMic: [], doneWait: new Set(), // chế độ tức thì
+  };
+  for (const s of sources) {
+    const node = new AudioWorkletNode(ctx, "collector", { channelCount: s.src === "sys" ? 2 : 1, channelCountMode: "explicit" });
+    const srcNode = ctx.createMediaStreamSource(s.stream);
+    srcNode.connect(node); srcNode.connect(analyser); node.connect(mute);
+    rec.parts[s.src] = [];
+    node.port.onmessage = (e) => {
+      if (!rec) return;
+      if (rec.mode === "instant") window.api.meetAudio(s.src, downsample(e.data, ctx.sampleRate));
+      else rec.parts[s.src].push(e.data);
+    };
+  }
 
-  const chunkMs = Number(els.chunkSec.value) * 1000;
-  rec.flushTimer = setInterval(flushChunk, chunkMs);
+  if (mode === "ai") rec.flushTimer = setInterval(flushChunk, Number(els.chunkSec.value) * 1000);
   rec.clockTimer = setInterval(() => { els.timer.textContent = fmt((Date.now() - rec.startedAt) / 1000); pushMeeting(); }, 1000);
   const level = new Float32Array(analyser.fftSize);
   const draw = () => {
@@ -91,80 +180,93 @@ async function startRecording() {
   };
   draw();
 
-  streams.forEach((s) => s.getTracks().forEach((t) => (t.onended = () => rec && stopRecording())));
+  sources.forEach((s) => s.stream.getTracks().forEach((t) => (t.onended = () => rec && stopRecording())));
   els.btnRecord.textContent = "■ Dừng & tóm tắt"; els.btnRecord.classList.add("stop");
   els.dot.classList.add("rec"); els.timer.textContent = "00:00";
-  [els.useMic, els.useSystem, els.chunkSec].forEach((x) => (x.disabled = true));
+  [els.useMic, els.useSystem, els.chunkSec, els.transMode].forEach((x) => (x.disabled = true));
   if (els.transcript.value.trim()) els.transcript.value = els.transcript.value.trimEnd() + "\n\n";
   pushMeeting();
-  toast("Đang ghi âm cuộc họp…");
+  toast(mode === "instant" ? "Đang ghi — lời nói hiện ngay trong transcript" : "Đang ghi âm cuộc họp (chế độ AI)…");
 }
 
+// Chế độ AI: mỗi nguồn gửi riêng 1 đoạn, nên biết đoạn nào là "Tôi", đoạn nào là "Người khác"
 function flushChunk() {
-  if (!rec || !rec.parts.length) return;
-  const parts = rec.parts; rec.parts = [];
+  if (!rec || rec.mode !== "ai") return;
   const offset = rec.chunkStart; rec.chunkStart = (Date.now() - rec.startedAt) / 1000;
-  const total = parts.reduce((n, p) => n + p.length, 0), all = new Float32Array(total);
-  let pos = 0; for (const p of parts) { all.set(p, pos); pos += p.length; }
-  let sq = 0; for (let i = 0; i < all.length; i++) sq += all[i] * all[i];
-  if (Math.sqrt(sq / all.length) < SILENCE_RMS) return; // im lặng → không gửi, tiết kiệm API
-
-  const wav = encodeWav(downsample(all, rec.ctx.sampleRate), TARGET_RATE);
-  setPending(1);
-  queue = queue.then(async () => {
-    try {
-      const audio = await blobToBase64(wav);
-      let text = "";
-      for (let attempt = 0; attempt < 2; attempt++) {
-        try { text = await window.api.transcribe({ audio, mimeType: "audio/wav", previous: els.transcript.value }); break; }
-        catch (e) { if (attempt === 1) throw e; await new Promise((r) => setTimeout(r, 1500)); }
-      }
-      if (text) {
-        const ta = els.transcript, atBottom = ta.scrollTop + ta.clientHeight >= ta.scrollHeight - 30;
-        ta.value += `[${fmt(offset)}] ${text}\n`;
-        if (atBottom) ta.scrollTop = ta.scrollHeight;
-        saveDraft();
-      }
-    } catch (e) { toast("Lỗi chép đoạn " + fmt(offset) + ": " + cleanErr(e), 6000); }
-    finally { setPending(-1); }
-  });
+  const sampleRate = rec.ctx.sampleRate, labeled = rec.labeled;
+  for (const src of rec.names) {
+    const parts = rec.parts[src]; rec.parts[src] = [];
+    if (!parts.length) continue;
+    const all = AudioUtils.concat(parts);
+    if (AudioUtils.rms(all) < SILENCE_RMS) continue; // im lặng → không gửi, tiết kiệm API
+    const wav = encodeWav(downsample(all, sampleRate), TARGET_RATE);
+    setPending(1);
+    queue = queue.then(async () => {
+      try {
+        const audio = await blobToBase64(wav);
+        let text = "";
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try { text = await window.api.transcribe({ audio, mimeType: "audio/wav", previous: els.transcript.value, single: labeled }); break; }
+          catch (e) { if (attempt === 1) throw e; await new Promise((r) => setTimeout(r, 1500)); }
+        }
+        if (text) {
+          const ta = els.transcript, atBottom = ta.scrollTop + ta.clientHeight >= ta.scrollHeight - 30;
+          ta.value += `[${fmt(offset)}] ${labeled ? LABEL[src] + ": " : ""}${text}\n`;
+          if (atBottom) ta.scrollTop = ta.scrollHeight;
+          saveDraft();
+        }
+      } catch (e) { toast("Lỗi chép đoạn " + fmt(offset) + ": " + cleanErr(e), 6000); }
+      finally { setPending(-1); }
+    });
+  }
 }
 
 async function stopRecording() {
   if (!rec) return;
   clearInterval(rec.flushTimer); clearInterval(rec.clockTimer);
-  flushChunk();
-  const r = rec; rec = null;
-  r.streams.forEach((s) => s.getTracks().forEach((t) => { t.onended = null; t.stop(); }));
-  r.ctx.close();
+  if (rec.mode === "ai") flushChunk();
+  const r = rec;
+  r.sources.forEach((s) => s.stream.getTracks().forEach((t) => { t.onended = null; t.stop(); }));
   els.btnRecord.textContent = "● Bắt đầu ghi"; els.btnRecord.classList.remove("stop"); els.dot.classList.remove("rec");
-  [els.useMic, els.useSystem, els.chunkSec].forEach((x) => (x.disabled = false));
   els.btnRecord.disabled = true;
   stopping = true; pushMeeting();
-  toast("Đang chép nốt các đoạn cuối…");
-  await queue;
+
+  if (r.mode === "instant") {
+    // chờ model chốt nốt câu cuối của từng nguồn (tối đa 4 giây)
+    await new Promise((resolve) => {
+      r.doneWait = new Set(r.names); r.onAllDone = resolve;
+      window.api.meetAsrStop(r.names);
+      setTimeout(resolve, 4000);
+    });
+    for (const h of [...r.heldMic]) { clearTimeout(h.timer); releaseMic(h); }
+  } else {
+    toast("Đang chép nốt các đoạn cuối…");
+    await queue;
+  }
+  r.ctx.close();
+  rec = null; renderLive();
+  [els.useMic, els.useSystem, els.chunkSec, els.transMode].forEach((x) => (x.disabled = false));
   stopping = false; pushMeeting();
   els.btnRecord.disabled = false;
-  if (els.transcript.value.trim()) summarize();
-  else toast("Không ghi nhận được lời nói nào");
+  if (!els.transcript.value.trim()) return toast("Không ghi nhận được lời nói nào");
+  if (!config.hasKey) { openSettings(); return toast("Đã chép xong. Nhập API key để tóm tắt"); }
+  summarize();
 }
 
 // ---------- tóm tắt ----------
 function list(arr) { return arr?.length ? `<ul>${arr.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : `<p class="none">Không có</p>`; }
 function renderSummary(s) {
   const tasks = s.viec_can_lam?.length
-    ? `<table><thead><tr><th>Việc cần làm</th><th>Phụ trách</th><th>Hạn</th></tr></thead><tbody>${s.viec_can_lam
+    ? `<table><thead><tr><th>${esc(s.ten_viec || "Việc cần làm")}</th><th>Phụ trách</th><th>Hạn</th></tr></thead><tbody>${s.viec_can_lam
         .map((t) => `<tr><td>${esc(t.viec)}</td><td>${esc(t.nguoi_phu_trach)}</td><td>${esc(t.han)}</td></tr>`).join("")}</tbody></table>`
     : `<p class="none">Không có</p>`;
   els.summary.classList.remove("empty");
   els.summary.innerHTML = `
-    <h3>${esc(s.tieu_de || "Biên bản cuộc họp")}</h3>
+    <span class="tag">${esc(s.loai_ten || "Họp chung")}</span>
+    <h3>${esc(s.tieu_de || "Biên bản")}</h3>
     <p class="overview">${esc(s.tong_quan)}</p>
-    <h4>Người tham gia</h4>${list(s.nguoi_tham_gia)}
-    <h4>Điểm chính</h4>${list(s.diem_chinh)}
-    <h4>Quyết định</h4>${list(s.quyet_dinh)}
-    <h4>Việc cần làm</h4>${tasks}
-    <h4>Vấn đề còn mở</h4>${list(s.van_de_mo)}`;
+    ${(s.muc || []).map((m) => `<h4>${esc(m.tieu_de)}</h4>${list(m.y)}`).join("")}
+    <h4>${esc(s.ten_viec || "Việc cần làm")}</h4>${tasks}`;
 }
 
 async function summarize() {
@@ -174,7 +276,7 @@ async function summarize() {
   els.btnSummarize.disabled = true; els.btnSummarize.textContent = "Đang tóm tắt…";
   summarizing = true; pushMeeting();
   try {
-    const { summary, markdown, file } = await window.api.summarize({ title: els.title.value.trim(), transcript });
+    const { summary, markdown, file } = await window.api.summarize({ title: els.title.value.trim(), transcript, template: els.template.value });
     renderSummary(summary);
     lastMarkdown = markdown; lastFile = file;
     els.btnCopy.disabled = els.btnShow.disabled = false;
@@ -222,10 +324,12 @@ els.btnSettings.onclick = openSettings;
 els.btnClear.onclick = () => { if (!els.transcript.value || confirm("Xoá toàn bộ transcript?")) { els.transcript.value = ""; saveDraft(); } };
 els.transcript.addEventListener("input", saveDraft);
 els.title.addEventListener("input", saveDraft);
+els.transMode.addEventListener("change", () => { syncModeUI(); savePrefs(); });
+els.template.addEventListener("change", savePrefs);
 window.addEventListener("beforeunload", (e) => { if (rec) { e.preventDefault(); e.returnValue = ""; } });
 
 (async () => {
-  loadDraft();
+  loadDraft(); loadPrefs(); syncModeUI();
   config = await window.api.getConfig();
   updateStatus();
   if (!config.hasKey) setTimeout(openSettings, 300);
