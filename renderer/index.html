@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; media-src 'self' blob: mediastream:" />
+  <title>Tóm tắt cuộc họp</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span id="dot" class="dot"></span>
+      <h1>Tóm tắt cuộc họp</h1>
+    </div>
+    <div class="row">
+      <span id="status" class="status">Đang tải…</span>
+      <button id="btnFolder" class="btn ghost small">📁 Biên bản đã lưu</button>
+      <button id="btnSettings" class="btn ghost small">⚙ Cài đặt</button>
+    </div>
+  </header>
+
+  <main class="grid">
+    <section class="card">
+      <h2>Ghi âm cuộc họp</h2>
+      <label class="field">
+        <span>Tên cuộc họp (không bắt buộc)</span>
+        <input id="title" type="text" placeholder="VD: Họp tiến độ dự án tuần 45" />
+      </label>
+
+      <div class="options">
+        <label class="check"><input id="useMic" type="checkbox" checked /> Thu cả micro của tôi</label>
+        <label class="check"><input id="useSystem" type="checkbox" checked /> Thu âm thanh máy (Meet, Zalo, Teams…)</label>
+        <label class="inline">Chép mỗi
+          <select id="chunkSec">
+            <option value="20">20 giây</option>
+            <option value="30" selected>30 giây</option>
+            <option value="60">60 giây</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="controls">
+        <button id="btnRecord" class="btn primary big">● Bắt đầu ghi</button>
+        <div class="meter-wrap" title="Mức âm thanh"><div id="meter" class="meter"></div></div>
+        <span id="timer" class="timer">00:00</span>
+      </div>
+      <p class="hint">Mở cuộc họp Google Meet hoặc cuộc gọi trên máy như bình thường, rồi bấm <b>Bắt đầu ghi</b>.
+        App thu tiếng của mọi người qua loa máy tính và giọng bạn qua micro.</p>
+      <p class="hint">💡 Nút tròn nổi trên màn hình: bấm để <b>ghi cuộc họp</b> hoặc <b>gõ bằng giọng nói</b> vào bất kỳ ô nhập chữ nào. Phím tắt gõ bằng giọng nói: <b>Ctrl+Shift+Space</b> (bấm lần nữa để dừng, Esc để huỷ). Đóng cửa sổ này app vẫn chạy ở khay hệ thống.</p>
+
+      <div class="section-head">
+        <h2>Transcript</h2>
+        <span id="pending" class="pending"></span>
+      </div>
+      <textarea id="transcript" spellcheck="false"
+        placeholder="Lời nói sẽ hiện dần ở đây trong lúc họp. Bạn cũng có thể dán transcript có sẵn rồi bấm Tóm tắt."></textarea>
+      <div class="row end">
+        <button id="btnClear" class="btn ghost small">Xoá transcript</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="section-head">
+        <h2>Biên bản tóm tắt</h2>
+        <div class="row">
+          <button id="btnSummarize" class="btn primary small">Tóm tắt</button>
+          <button id="btnCopy" class="btn ghost small" disabled>Sao chép</button>
+          <button id="btnShow" class="btn ghost small" disabled>Mở file</button>
+        </div>
+      </div>
+      <div id="summary" class="summary empty">
+        Khi bấm <b>Dừng</b>, app sẽ tự tóm tắt và lưu biên bản (.md) vào thư mục <b>Documents\Bien ban hop</b>.
+      </div>
+    </section>
+  </main>
+
+  <dialog id="settings">
+    <form method="dialog" class="settings">
+      <h2>Cài đặt</h2>
+      <label class="field">
+        <span>Kết nối AI qua</span>
+        <select id="provider">
+          <option value="9router">9router (Antigravity) — chạy trên máy</option>
+          <option value="gemini">Google Gemini API (key AIza…)</option>
+        </select>
+      </label>
+      <label class="field" id="baseUrlField">
+        <span>Địa chỉ 9router</span>
+        <input id="baseUrl" type="text" placeholder="http://localhost:20128/v1" />
+        <small>Nhớ mở 9router trước khi họp.</small>
+      </label>
+      <label class="field">
+        <span>API key</span>
+        <input id="apiKey" type="password" autocomplete="off" />
+        <small>Key chỉ lưu trên máy này.</small>
+      </label>
+      <label class="field">
+        <span>Model</span>
+        <input id="model" type="text" />
+        <small id="modelHint"></small>
+      </label>
+      <div class="row end">
+        <button value="cancel" class="btn ghost small">Huỷ</button>
+        <button id="btnSaveSettings" value="save" class="btn primary small">Lưu</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status"></div>
+  <script src="audio-utils.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,42 @@
+{
+  "name": "tom-tat-cuoc-hop",
+  "productName": "Tóm tắt cuộc họp",
+  "version": "1.0.0",
+  "description": "App desktop ghi âm cuộc họp (Google Meet, cuộc gọi) và tóm tắt bằng Gemini",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win portable",
+    "postinstall": "node scripts/download-model.js"
+  },
+  "build": {
+    "appId": "local.tomtatcuochop",
+    "productName": "TomTatCuocHop",
+    "files": [
+      "main.js",
+      "preload.js",
+      "gemini.js",
+      "typer.js",
+      "asr-worker.js",
+      "renderer/**/*",
+      "assets/**/*",
+      "models/**/*"
+    ],
+    "win": {
+      "target": "portable",
+      "icon": "assets/icon.ico"
+    },
+    "asarUnpack": [
+      "asr-worker.js",
+      "models/**/*",
+      "node_modules/sherpa-onnx-*/**/*"
+    ]
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "dependencies": {
+    "sherpa-onnx-node": "^2.0.1"
+  }
+}

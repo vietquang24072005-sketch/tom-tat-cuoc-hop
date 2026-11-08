@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'" />
+  <title>Phụ đề</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; }
+    html, body { width: 100%; height: 100%; background: transparent; overflow: hidden; user-select: none; }
+    .box {
+      position: absolute; inset: 4px; border-radius: 14px; padding: 10px 14px;
+      background: rgba(22, 24, 30, .93); box-shadow: 0 6px 20px rgba(0,0,0,.35); color: #fff;
+      font: 15px/1.45 "Segoe UI", system-ui, sans-serif; display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden;
+    }
+    .head { display: flex; align-items: center; gap: 6px; font-size: 11px; color: rgba(255,255,255,.55); margin-bottom: 2px; }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: #ff5a5f; animation: blink 1s infinite; }
+    @keyframes blink { 50% { opacity: .3; } }
+    .text { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; word-break: break-word; }
+    .done { color: rgba(255,255,255,.6); }
+    .live { color: #fff; }
+    .live::after { content: "▍"; color: #5b8cff; animation: blink 1s infinite; margin-left: 1px; }
+    .hint { color: rgba(255,255,255,.45); font-style: italic; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <div class="head"><span class="dot"></span><span id="label">Đang nghe… · bấm lại nút hoặc Ctrl+Shift+Space để dừng · Esc huỷ</span></div>
+    <div id="text" class="text"><span class="hint">Hãy nói…</span></div>
+  </div>
+  <script src="caption.js"></script>
+</body>
+</html>
