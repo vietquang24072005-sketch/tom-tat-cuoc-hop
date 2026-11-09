@@ -3,13 +3,14 @@ const path = require("path");
 const fs = require("fs");
 const gemini = require("./gemini");
 const typer = require("./typer");
+const keywatch = require("./keywatch");
 
 const HOTKEY = "Control+Shift+Space";
 const ORB = 60, OPEN_W = 196; // kích thước nút nổi (thu gọn / mở menu)
 const ICON = path.join(__dirname, "assets", "icon.png");
 const CONFIG_FILE = () => path.join(app.getPath("userData"), "config.json");
 const MEETINGS_DIR = () => path.join(app.getPath("documents"), "Bien ban hop");
-const DEFAULTS = { provider: "9router", baseUrl: "http://localhost:20128/v1", apiKey: "", model: "ag/gemini-3.8-flash", bubble: null, showBubble: true, dictationMode: "instant" };
+const DEFAULTS = { provider: "9router", baseUrl: "http://localhost:20128/v1", apiKey: "", model: "ag/gemini-3.8-flash", bubble: null, showBubble: true, dictationMode: "instant", pttKey: "left" };
 
 let mainWin = null, bubble = null, tray = null, caption = null;
 let quitting = false;
@@ -86,10 +87,15 @@ function onAsrMessage(m) {
   if (m.type === "partial") sendCaption({ partial: m.text.toLocaleLowerCase("vi") });
   else if (m.type === "final") {
     const out = formatPhrase(m.text, dictSess);
-    if (out) { typer.type(out); dictSess.typed += out; }
-    sendCaption({ partial: "" });
+    if (out) {
+      dictSess.typed += out;
+      // đang giữ Shift thì chưa gõ (Shift đang nhấn có thể làm app đích hiểu sai) → gõ ngay khi thả
+      if (dictSess.ptt) dictSess.queue += out; else typer.type(out);
+    }
+    sendCaption({ partial: "", status: dictSess.ptt ? "ptt" : "listening" });
   } else if (m.type === "done") {
-    const typed = dictSess.typed; dictSess = null;
+    const typed = dictSess.typed, queued = dictSess.queue; dictSess = null;
+    if (queued) setTimeout(() => typer.type(queued), 40);
     bubble.webContents.send("dictation:done", { text: typed });
     setTimeout(() => { if (!dictSess) caption?.hide(); }, typed ? 900 : 300);
   }
@@ -118,7 +124,7 @@ function showCaption() {
   caption.setBounds({ x: Math.round(x), y: Math.round(y), width: CAP_W, height: CAP_H });
   caption.showInactive();
 }
-function sendCaption({ partial = "", status = "listening" }) {
+function sendCaption({ partial = "", status = dictSess?.ptt ? "ptt" : "listening" }) {
   caption?.webContents.send("caption", { committed: dictSess?.typed || "", partial, status });
 }
 
@@ -185,6 +191,9 @@ function buildMenu() {
       { label: "Tức thì — chữ hiện ngay khi nói (offline)", type: "radio", checked: loadConfig().dictationMode !== "ai", click: () => patchConfig({ dictationMode: "instant" }) },
       { label: "Chính xác hơn, có dấu câu — AI (chậm 3–5 giây)", type: "radio", checked: loadConfig().dictationMode === "ai", click: () => patchConfig({ dictationMode: "ai" }) },
     ] },
+    { label: "Giữ phím để nói", submenu: [
+      ["left", "Giữ Shift trái (khuyên dùng)"], ["right", "Giữ Shift phải"], ["both", "Giữ Shift bất kỳ"], ["off", "Tắt"],
+    ].map(([key, label]) => ({ label, type: "radio", checked: (loadConfig().pttKey || "left") === key, click: () => { patchConfig({ pttKey: key }); keywatch.setKey(key); } })) },
     { label: meeting.recording ? "Dừng ghi cuộc họp & tóm tắt" : "Ghi cuộc họp", enabled: !(meeting.busy && !meeting.recording), click: toggleMeeting },
     { label: "Mở cửa sổ biên bản", click: showMain },
     { type: "separator" },
@@ -288,16 +297,16 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.on("meet:asr-stop", (_e, sources) => { for (const src of sources) asr?.postMessage({ type: "stop", id: "meet-" + src }); });
 
     // gõ bằng giọng nói
-    ipcMain.handle("dict:start", () => {
+    ipcMain.handle("dict:start", (_e, { ptt = false } = {}) => {
       const mode = loadConfig().dictationMode === "ai" ? "ai" : "instant";
       if (mode === "instant" && (!asr || asrError)) {
         notify(asrError || "Bộ nhận giọng nói đang khởi động, thử lại sau vài giây");
         return { mode: "none" };
       }
-      dictSess = mode === "instant" ? { typed: "", capNext: true } : null;
+      dictSess = mode === "instant" ? { typed: "", capNext: true, ptt, queue: "" } : null;
       if (mode === "instant") asr.postMessage({ type: "start" });
       showCaption();
-      caption.webContents.send("caption", { committed: "", partial: "", status: mode === "ai" ? "ai" : "listening" });
+      caption.webContents.send("caption", { committed: "", partial: "", status: mode === "ai" ? "ai" : ptt ? "ptt" : "listening" });
       return { mode };
     });
     ipcMain.on("dict:audio", (_e, samples) => { if (dictSess && asr) asr.postMessage({ type: "audio", samples }); });
@@ -324,6 +333,12 @@ if (!app.requestSingleInstanceLock()) {
     if (!globalShortcut.register(HOTKEY, () => bubble.webContents.send("dictation:toggle"))) {
       notify(`Phím tắt ${HOTKEY} đang bị app khác dùng. Bạn vẫn có thể bấm nút nổi để gõ bằng giọng nói.`);
     }
+    // giữ Shift để nói
+    keywatch.on("start", () => bubble.webContents.send("ptt:start"));
+    keywatch.on("stop", () => bubble.webContents.send("ptt:stop"));
+    keywatch.on("cancel", () => bubble.webContents.send("ptt:cancel"));
+    keywatch.setKey(loadConfig().pttKey || "left");
+
     typer.ensure(); // khởi động sẵn để lần gõ đầu tiên không bị chậm
     startAsr();
     createCaption();
@@ -332,6 +347,6 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.on("before-quit", () => { quitting = true; });
-  app.on("will-quit", () => { globalShortcut.unregisterAll(); typer.stop(); asr?.kill(); });
+  app.on("will-quit", () => { globalShortcut.unregisterAll(); typer.stop(); keywatch.stop(); asr?.kill(); });
   app.on("window-all-closed", () => {}); // chạy nền ở khay hệ thống
 }

@@ -43,7 +43,12 @@ Biên bản được lưu dạng `.md` trong `Documents\Bien ban hop` (bấm **�
 Khi app chạy, một **nút tròn xanh** luôn nổi trên màn hình (kéo để di chuyển).
 
 - **Bấm nút** → hiện menu nhỏ: 🎤 gõ bằng giọng nói · ⏺ ghi/dừng cuộc họp · ▭ mở cửa sổ biên bản.
-- **Gõ bằng giọng nói**: đặt con trỏ vào ô nhập chữ bất kỳ (Word, Zalo, Chrome…), nhấn **Ctrl+Shift+Space** (hoặc 🎤) rồi nói.
+- **Giữ Shift để nói** (nhanh nhất): đặt con trỏ vào ô nhập chữ, **giữ phím Shift trái** và nói, **thả ra** là chữ được gõ vào.
+  - Chỉ kích hoạt khi giữ Shift *một mình* ~0,25 giây — gõ chữ hoa (Shift+A) hay Shift+click vẫn bình thường.
+  - Đang nói mà bấm phím khác → huỷ.
+  - Đổi phím (Shift trái / phải / bất kỳ) hoặc tắt: chuột phải nút nổi → *Giữ phím để nói*.
+    (Mặc định Shift trái vì giữ Shift phải 8 giây sẽ bật hộp thoại *Filter Keys* của Windows.)
+- **Gõ bằng giọng nói (bấm để nói)**: đặt con trỏ vào ô nhập chữ bất kỳ (Word, Zalo, Chrome…), nhấn **Ctrl+Shift+Space** (hoặc 🎤) rồi nói.
   - Chữ hiện **ngay lập tức** trong khung phụ đề cạnh nút; mỗi khi bạn ngừng ~0,5 giây, câu đó được gõ thẳng vào ô.
   - Nhấn lại phím tắt (hoặc bấm nút đỏ) để dừng, **Esc** để huỷ.
   - Đọc dấu: "dấu phẩy", "dấu chấm", "dấu chấm hỏi", "dấu chấm than", "xuống dòng" (= Shift+Enter, không gửi tin nhắn).

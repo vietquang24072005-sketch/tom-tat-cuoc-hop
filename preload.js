@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
-const LISTEN = ["dictation:toggle", "dictation:cancel", "dictation:done", "meeting:state", "bubble:collapse", "caption", "meet:asr"];
+const LISTEN = ["dictation:toggle", "dictation:cancel", "dictation:done", "meeting:state", "bubble:collapse", "caption", "meet:asr", "ptt:start", "ptt:stop", "ptt:cancel"];
 
 contextBridge.exposeInMainWorld("api", {
   // cấu hình + AI
@@ -12,7 +12,7 @@ contextBridge.exposeInMainWorld("api", {
   meetAsrStart: (sources) => ipcRenderer.invoke("meet:asr-start", sources),
   meetAudio: (src, samples) => ipcRenderer.send("meet:audio", src, samples),
   meetAsrStop: (sources) => ipcRenderer.send("meet:asr-stop", sources),
-  dictStart: () => ipcRenderer.invoke("dict:start"),
+  dictStart: (opts) => ipcRenderer.invoke("dict:start", opts),
   dictAudio: (samples) => ipcRenderer.send("dict:audio", samples),
   dictStop: (opts) => ipcRenderer.send("dict:stop", opts),
   // cửa sổ, file

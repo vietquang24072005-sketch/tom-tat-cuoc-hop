@@ -17,6 +17,7 @@
       "preload.js",
       "gemini.js",
       "typer.js",
+      "keywatch.js",
       "asr-worker.js",
       "renderer/**/*",
       "assets/**/*",

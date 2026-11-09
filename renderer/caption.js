@@ -3,7 +3,10 @@ const textEl = document.getElementById("text");
 const label = document.getElementById("label");
 
 window.api.on("caption", ({ committed = "", partial = "", status = "listening" }) => {
-  label.textContent = status === "finishing" ? "Đang hoàn tất…" : status === "ai" ? "Đang nghe (chế độ AI, chữ sẽ gõ khi bạn dừng)…" : "Đang nghe… · bấm lại nút hoặc Ctrl+Shift+Space để dừng · Esc huỷ";
+  label.textContent = status === "finishing" ? "Đang hoàn tất…"
+    : status === "ai" ? "Đang nghe (chế độ AI, chữ sẽ gõ khi bạn dừng)…"
+    : status === "ptt" ? "Đang nghe… · thả Shift để gõ · bấm phím khác để huỷ"
+    : "Đang nghe… · bấm lại nút hoặc Ctrl+Shift+Space để dừng · Esc huỷ";
   textEl.textContent = "";
   if (!committed && !partial) {
     const h = document.createElement("span"); h.className = "hint"; h.textContent = "Hãy nói…"; textEl.append(h);

@@ -67,14 +67,14 @@ prepareAudio(); // chuẩn bị sẵn để bấm là nghe ngay
 
 let starting = null, stopWanted = false, doneTimer = null;
 
-function startDictation() {
+function startDictation(opts = {}) {
   if (dictState !== "idle" || starting) return;
   setExpanded(false);
   setDictState("rec"); // đổi màu ngay lập tức
   stopWanted = false;
   starting = (async () => {
     const micP = navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
-    const [ctx, start] = await Promise.all([prepareAudio(), bridge.dictStart()]);
+    const [ctx, start] = await Promise.all([prepareAudio(), bridge.dictStart(opts)]);
     if (start.mode === "none") { micP.then((s) => s.getTracks().forEach((t) => t.stop())).catch(() => {}); return flash("err", "Bộ nhận giọng nói chưa sẵn sàng"); }
     let stream;
     try { stream = await micP; }
@@ -149,6 +149,16 @@ bridge.on("dictation:done", ({ text }) => {
   if (dictState !== "busy") return;
   text ? flash("ok", "Đã gõ: " + text.slice(-80)) : flash("empty", "Không nghe thấy tiếng nói");
 });
+
+// ---------- giữ Shift để nói: giữ → nghe, thả → gõ, bấm phím khác → huỷ ----------
+let pttActive = false;
+bridge.on("ptt:start", () => {
+  if (dictState !== "idle" || starting) return; // đang dùng chế độ bấm-để-nói thì bỏ qua
+  pttActive = true;
+  startDictation({ ptt: true });
+});
+bridge.on("ptt:stop", () => { if (pttActive) { pttActive = false; stopDictation(false); } });
+bridge.on("ptt:cancel", () => { if (pttActive) { pttActive = false; stopDictation(true); } });
 
 function toggleDictation() {
   if (dictState === "rec") stopDictation(false);
